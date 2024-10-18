@@ -1,5 +1,3 @@
-#python drowniness_yawn.py --webcam webcam_index
-
 from scipy.spatial import distance as dist
 from imutils.video import VideoStream
 from imutils import face_utils
@@ -13,17 +11,16 @@ import cv2
 import playsound
 import os
 
-
 def sound_alarm(path):
     global alarm_status
     global alarm_status2
     global saying
 
     while alarm_status:
-        print('call')
+        print('Alarm ringing...')
         playsound.playsound(path)
     if alarm_status2:
-        print('call')
+        print('Alarm ringing...')
         saying = True
         playsound.playsound(path)
         saying = False
@@ -31,11 +28,8 @@ def sound_alarm(path):
 def eye_aspect_ratio(eye):
     A = dist.euclidean(eye[1], eye[5])
     B = dist.euclidean(eye[2], eye[4])
-
     C = dist.euclidean(eye[0], eye[3])
-
     ear = (A + B) / (2.0 * C)
-
     return ear
 
 def final_ear(shape):
@@ -68,7 +62,7 @@ def lip_distance(shape):
 ap = argparse.ArgumentParser()
 ap.add_argument("-w", "--webcam", type=int, default=0,
                 help="index of webcam on system")
-ap.add_argument("-a", "--alarm", type=str, default="D:\Files\last desktop\Drowsiness-Detection-System\Alert.WAV", help="path alarm .WAV file")
+ap.add_argument("-a", "--alarm", type=str, default="workspaces/Real-Time-Drowsiness-Detection-System/drowsiness_yawn.py/Alert.WAV", help="path to alarm .WAV file")
 args = vars(ap.parse_args())
 
 EYE_AR_THRESH = 0.3
@@ -80,37 +74,44 @@ saying = False
 COUNTER = 0
 
 print("-> Loading the predictor and detector...")
-#detector = dlib.get_frontal_face_detector()
-detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")    #Faster but less accurate
+detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")  # Faster but less accurate
 predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
 
-
 print("-> Starting Video Stream")
-vs = VideoStream(src=args["webcam"]).start()
-#vs= VideoStream(usePiCamera=True).start()       //For Raspberry Pi
+# Use a local video file
+vs = cv2.VideoCapture('mixkit-drowsy-man-falling-asleep-at-the-wheel-48746-hd-ready.mp4')
+
+# Initialize VideoWriter to save the output as MP4
+output_file = "output.mp4"  # Output file name
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for MP4 output
+fps = 30  # Frames per second for the output video
+frame_size = (450, 300)  # Resize the output frames to a specific size (if needed)
+
+# Create VideoWriter object
+out = cv2.VideoWriter(output_file, fourcc, fps, frame_size)
+
 time.sleep(1.0)
 
 while True:
-
-    frame = vs.read()
+    ret, frame = vs.read()
+    if not ret:
+        break  # Exit the loop if there are no frames to read
     frame = imutils.resize(frame, width=450)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    #rects = detector(gray, 0)
     rects = detector.detectMultiScale(gray, scaleFactor=1.1,
-		minNeighbors=5, minSize=(30, 30),
-		flags=cv2.CASCADE_SCALE_IMAGE)
+                                       minNeighbors=5, minSize=(30, 30),
+                                       flags=cv2.CASCADE_SCALE_IMAGE)
 
-    #for rect in rects:
     for (x, y, w, h) in rects:
-        rect = dlib.rectangle(int(x), int(y), int(x + w),int(y + h))
+        rect = dlib.rectangle(int(x), int(y), int(x + w), int(y + h))
 
         shape = predictor(gray, rect)
         shape = face_utils.shape_to_np(shape)
 
         eye = final_ear(shape)
         ear = eye[0]
-        leftEye = eye [1]
+        leftEye = eye[1]
         rightEye = eye[2]
 
         distance = lip_distance(shape)
@@ -130,10 +131,9 @@ while True:
                 if alarm_status == False:
                     alarm_status = True
                     if args["alarm"] != "":
-                        t = Thread(target=sound_alarm,
-                                   args=(args["alarm"],))
-                    t.deamon = True
-                    t.start()
+                        t = Thread(target=sound_alarm, args=(args["alarm"],))
+                        t.daemon = True
+                        t.start()
 
                 cv2.putText(frame, "DROWSINESS ALERT!", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
@@ -143,14 +143,13 @@ while True:
             alarm_status = False
 
         if (distance > YAWN_THRESH):
-                cv2.putText(frame, "Yawn Alert", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                if alarm_status2 == False and saying == False:
-                    alarm_status2 = True
-                    if args["alarm"] != "":
-                        t = Thread(target=sound_alarm,
-                                   args=(args["alarm"],))
-                    t.deamon = True
+            cv2.putText(frame, "Yawn Alert", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            if alarm_status2 == False and saying == False:
+                alarm_status2 = True
+                if args["alarm"] != "":
+                    t = Thread(target=sound_alarm, args=(args["alarm"],))
+                    t.daemon = True
                     t.start()
         else:
             alarm_status2 = False
@@ -160,12 +159,10 @@ while True:
         cv2.putText(frame, "YAWN: {:.2f}".format(distance), (300, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+    # Write the processed frame to the output video file
+    out.write(frame)
 
-    cv2.imshow("Frame", frame)
-    key = cv2.waitKey(1) & 0xFF
-
-    if key == ord("q"):
-        break
-
-cv2.destroyAllWindows()
-vs.stop()
+# Release the VideoWriter and any resources
+out.release()
+vs.release()
+print("Video processing complete. Output saved to {}".format(output_file))
